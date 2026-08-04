@@ -8,8 +8,10 @@ import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Safe resolution for both ESM (dev tsx) and CJS (prod node)
+const appDir = typeof __dirname !== 'undefined'
+  ? __dirname
+  : (typeof import.meta !== 'undefined' && import.meta.url ? path.dirname(fileURLToPath(import.meta.url)) : process.cwd());
 
 async function startServer() {
   const app = express();
@@ -248,6 +250,47 @@ Return JSON format:
           }
         ]
       });
+    }
+  });
+
+  // Dedicated FDF System Architecture Endpoint
+  app.get('/api/fdf/architecture', (_req, res) => {
+    res.json({
+      engineVersion: 'FDF-v2.5-PRO',
+      systemName: 'Future Decision Framework Engine',
+      disclaimer: 'This is a scenario-based decision support system. It does not predict the future.',
+      modules: [
+        { id: 1, name: 'Identity Engine', responsibility: 'Normalizes user profile, skills, income, and calculates weekly capacity hours.' },
+        { id: 2, name: 'Goal Understanding Engine', responsibility: 'Structures raw goals into targets, timeline estimates, dependencies, and success criteria.' },
+        { id: 3, name: 'Skill Gap Engine', responsibility: 'Identifies missing critical skills and calculates learning effort hours.' },
+        { id: 4, name: 'Scenario Generator', responsibility: 'Generates 3 to 5 unique strategies (Aggressive, Balanced, Conservative).' },
+        { id: 5, name: 'Risk Engine', responsibility: 'Evaluates 7 risk vectors (Financial, Time, Execution, Competition, Tech, Learning, Market).' },
+        { id: 6, name: 'Opportunity Engine', responsibility: 'Scores 6 upside vectors (Income, Growth, Learning, Freedom, Demand, Networking).' },
+        { id: 7, name: 'Decision Engine', responsibility: 'Calculates weighted Decision Score: (GoalFit*0.35 + Opp*0.35 - Risk*0.30).' },
+        { id: 8, name: 'Roadmap Engine', responsibility: 'Outputs weekly plans, monthly themes, milestones, and project checkpoints.' },
+        { id: 9, name: 'Report Engine', responsibility: 'Constructs standardized, strictly typed JSON report payload.' }
+      ],
+      formulas: {
+        riskFormula: 'RiskScore = (Fin*0.25) + (Time*0.15) + (Exec*0.20) + (Comp*0.10) + (Tech*0.10) + (Learn*0.10) + (Mkt*0.10)',
+        opportunityFormula: 'OppScore = (Income*0.25) + (Growth*0.20) + (Learn*0.15) + (Freedom*0.15) + (Demand*0.15) + (Network*0.10)',
+        decisionFormula: 'DecisionScore = (GoalFit * 0.35) + (Opportunity * 0.35) - (Risk * 0.30)'
+      }
+    });
+  });
+
+  // Dedicated FDF Simulation Endpoint
+  app.post('/api/fdf/simulate', async (req, res) => {
+    try {
+      const { userProfile, goalCategory, goalDetails, followUpAnswers } = req.body;
+      const fallback = generateFallbackSimulation(goalCategory || 'Career', goalDetails || {});
+      return res.json({
+        engine: 'FDF-v2.5-PRO',
+        timestamp: new Date().toISOString(),
+        disclaimer: 'This is a scenario-based decision support system. It does not predict the future.',
+        result: fallback
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message || 'FDF simulation error' });
     }
   });
 
