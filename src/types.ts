@@ -37,6 +37,15 @@ export interface FollowUpQuestion {
   options: string[];
 }
 
+export interface ScoreExplainability {
+  score: number;
+  formula: string;
+  weightingBreakdown: Record<string, number>;
+  keyDrivers: string[];
+  penaltiesOrBoosts: string[];
+  summary: string;
+}
+
 export interface RiskBreakdown {
   financialRisk: number; // 0-100
   timeRisk: number; // 0-100
@@ -48,6 +57,7 @@ export interface RiskBreakdown {
   overallRiskScore: number; // 0-100
   riskLevel: 'Low' | 'Moderate' | 'High' | 'Extreme';
   reasons: string[];
+  explainability?: ScoreExplainability;
 }
 
 export interface OpportunityBreakdown {
@@ -58,6 +68,7 @@ export interface OpportunityBreakdown {
   futureDemand: number; // 0-100
   networkingValue: number; // 0-100
   overallOpportunityScore: number; // 0-100
+  explainability?: ScoreExplainability;
 }
 
 export interface SkillGapAnalysis {
@@ -67,6 +78,7 @@ export interface SkillGapAnalysis {
   optionalSkills: string[];
   learningPriority: string[];
   estimatedEffortHours: number;
+  explainability?: ScoreExplainability;
 }
 
 export interface FdfScores {
@@ -81,6 +93,7 @@ export interface FdfScores {
   riskBreakdown?: RiskBreakdown;
   opportunityBreakdown?: OpportunityBreakdown;
   skillGapAnalysis?: SkillGapAnalysis;
+  explainability?: ScoreExplainability;
 }
 
 export interface Scenario {
