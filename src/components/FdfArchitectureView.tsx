@@ -17,7 +17,7 @@ import {
   BookOpen,
   Sparkles
 } from 'lucide-react';
-import { RiskEngine, OpportunityEngine, DecisionEngine } from '../engine/fdfEngine';
+import { riskService, opportunityService, decisionService } from '../engine/fdfEngine';
 
 interface FdfArchitectureViewProps {
   darkMode: boolean;

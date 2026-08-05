@@ -5,6 +5,13 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import { authService, userRepository } from './src/server/authService';
+import { simulationRepository } from './src/server/simulationRepository';
+import { OPENAPI_SPEC } from './src/server/swaggerSpec';
+import { aiOrchestrator } from './src/engine/orchestrator/aiOrchestrator';
+import { reportService } from './src/engine/services/report.service';
+import { validateSimulationRequest } from './src/utils/validation';
+import { FDF_CONFIG } from './src/config/fdfConfig';
 
 dotenv.config();
 
@@ -36,6 +43,162 @@ async function startServer() {
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // Helper middleware for JWT Authentication
+  const authenticateToken = (req: any, res: any, next: any) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) {
+      // Fallback to demo user if no token provided for ease of testing
+      req.user = { userId: 'user-demo-001', email: 'aarav@futureengine.ai', name: 'Aarav Sharma' };
+      return next();
+    }
+    try {
+      const decoded = authService.verifyToken(token);
+      req.user = decoded;
+      next();
+    } catch (err) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
+    }
+  };
+
+  // Auth Routes
+  const handleSignup = (req: any, res: any) => {
+    try {
+      const { email, password, name } = req.body;
+      if (!email || !password || !name) {
+        return res.status(400).json({ error: 'Email, password, and name are required' });
+      }
+      const { user, profile } = userRepository.createUser(email, password, name);
+      const token = authService.generateToken(user);
+      return res.status(201).json({
+        message: 'Account created successfully',
+        token,
+        user: { id: user.id, email: user.email, name: user.name },
+        profile
+      });
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message || 'Failed to create account' });
+    }
+  };
+
+  const handleLogin = (req: any, res: any) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+      const user = userRepository.findByEmail(email);
+      if (!user) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+      const hash = userRepository.hashPassword(password);
+      if (hash !== user.passwordHash) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+      const token = authService.generateToken(user);
+      const profile = userRepository.getProfile(user.id);
+      return res.json({
+        message: 'Login successful',
+        token,
+        user: { id: user.id, email: user.email, name: user.name },
+        profile
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Authentication failed' });
+    }
+  };
+
+  app.post('/auth/signup', handleSignup);
+  app.post('/api/auth/signup', handleSignup);
+  app.post('/auth/login', handleLogin);
+  app.post('/api/auth/login', handleLogin);
+
+  // Profile Routes
+  const handleGetProfile = (req: any, res: any) => {
+    const profile = userRepository.getProfile(req.user.userId);
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+    return res.json(profile);
+  };
+
+  const handlePutProfile = (req: any, res: any) => {
+    try {
+      const updated = userRepository.updateProfile(req.user.userId, req.body);
+      return res.json({ message: 'Profile updated successfully', profile: updated });
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message || 'Profile update failed' });
+    }
+  };
+
+  app.get('/profile', authenticateToken, handleGetProfile);
+  app.get('/api/profile', authenticateToken, handleGetProfile);
+  app.put('/profile', authenticateToken, handlePutProfile);
+  app.put('/api/profile', authenticateToken, handlePutProfile);
+
+  // Simulation Routes
+  const handleSimulation = async (req: any, res: any) => {
+    try {
+      const validation = validateSimulationRequest(req.body);
+      if (!validation.isValid) {
+        return res.status(400).json({ error: 'Invalid simulation payload', details: validation.errors });
+      }
+
+      const { userProfile, goalCategory, goalDetails, followUpAnswers } = req.body;
+      const simulationResult = await aiOrchestrator.simulate(userProfile, goalDetails, followUpAnswers);
+
+      const userId = req.user?.userId || 'user-demo-001';
+      simulationRepository.saveSimulation(userId, simulationResult);
+
+      return res.json(simulationResult);
+    } catch (e: any) {
+      console.error('Simulation execution error:', e);
+      return res.status(500).json({ error: e.message || 'Failed to execute decision simulation' });
+    }
+  };
+
+  const handleGetSimulationById = (req: any, res: any) => {
+    const record = simulationRepository.getById(req.params.id);
+    if (!record) {
+      return res.status(404).json({ error: 'Simulation record not found' });
+    }
+    return res.json(record);
+  };
+
+  app.post('/simulation', authenticateToken, handleSimulation);
+  app.post('/api/simulation', authenticateToken, handleSimulation);
+  app.get('/simulation/:id', authenticateToken, handleGetSimulationById);
+  app.get('/api/simulation/:id', authenticateToken, handleGetSimulationById);
+
+  // Report Route
+  const handleReport = (req: any, res: any) => {
+    const { userProfile, goalDetails, scenarios, roadmap } = req.body;
+    if (!userProfile || !goalDetails) {
+      return res.status(400).json({ error: 'userProfile and goalDetails are required to build report' });
+    }
+    const fullReport = reportService.buildReport(userProfile, goalDetails, scenarios || [], roadmap || []);
+    return res.json(fullReport);
+  };
+
+  app.post('/report', authenticateToken, handleReport);
+  app.post('/api/report', authenticateToken, handleReport);
+
+  // Dashboard Route
+  const handleDashboard = (req: any, res: any) => {
+    const userId = req.user?.userId || 'user-demo-001';
+    const summary = simulationRepository.getDashboardSummary(userId);
+    return res.json({
+      userId,
+      disclaimer: FDF_CONFIG.SYSTEM.DISCLAIMER,
+      metrics: summary
+    });
+  };
+
+  app.get('/dashboard', authenticateToken, handleDashboard);
+  app.get('/api/dashboard', authenticateToken, handleDashboard);
+
+  // OpenAPI Specs Endpoint
+  app.get('/docs', (_req, res) => res.json(OPENAPI_SPEC));
+  app.get('/api/docs', (_req, res) => res.json(OPENAPI_SPEC));
 
   // AI Decision Scenario Simulation Endpoint
   app.post('/api/simulate', async (req, res) => {

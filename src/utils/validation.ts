@@ -44,7 +44,7 @@ export const GenerateQuestionsSchema = z.object({
 export function validateSimulationRequest(body: unknown) {
   const result = SimulationRequestSchema.safeParse(body);
   if (!result.success) {
-    const errorMessages = result.error.errors.map(err => `${err.path.join('.')}: ${err.message}`);
+    const errorMessages = result.error.issues.map(err => `${err.path.join('.')}: ${err.message}`);
     return {
       isValid: false as const,
       errors: errorMessages,
@@ -61,7 +61,7 @@ export function validateSimulationRequest(body: unknown) {
 export function validateGenerateQuestionsRequest(body: unknown) {
   const result = GenerateQuestionsSchema.safeParse(body);
   if (!result.success) {
-    const errorMessages = result.error.errors.map(err => `${err.path.join('.')}: ${err.message}`);
+    const errorMessages = result.error.issues.map(err => `${err.path.join('.')}: ${err.message}`);
     return {
       isValid: false as const,
       errors: errorMessages,
