@@ -197,6 +197,16 @@ export async function signupWithEmail(
   }
 }
 
+export function parseAuthError(error: unknown): string {
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as any).message);
+  }
+  return 'Authentication failed. Please check your credentials or try again later.';
+}
+
 export async function verifySession(token: string): Promise<AuthApiProfile | null> {
   const res = await fetch('/api/profile', {
     method: 'GET',
