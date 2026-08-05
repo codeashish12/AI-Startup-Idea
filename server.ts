@@ -13,6 +13,9 @@ import { reportService } from './src/engine/services/report.service';
 import { validateSimulationRequest } from './src/utils/validation';
 import { FDF_CONFIG } from './src/config/fdfConfig';
 
+import { saveReportToDb, getReportsFromDbByUserId, getReportFromDbById } from './src/db/reports.ts';
+import { saveFdfVersionToDb, getAllFdfVersionsFromDb, ensureDefaultFdfVersionInDb } from './src/db/fdfVersions.ts';
+
 dotenv.config();
 
 // Safe resolution for both ESM (dev tsx) and CJS (prod node)
@@ -21,6 +24,9 @@ const appDir = typeof __dirname !== 'undefined'
   : (typeof import.meta !== 'undefined' && import.meta.url ? path.dirname(fileURLToPath(import.meta.url)) : process.cwd());
 
 async function startServer() {
+  // Ensure default FDF version exists in DB
+  ensureDefaultFdfVersionInDb().catch((err) => console.warn('Default FDF version seed warning:', err));
+
   const app = express();
   const PORT = 3000;
 
@@ -63,13 +69,13 @@ async function startServer() {
   };
 
   // Auth Routes
-  const handleSignup = (req: any, res: any) => {
+  const handleSignup = async (req: any, res: any) => {
     try {
       const { email, password, name } = req.body;
       if (!email || !password || !name) {
         return res.status(400).json({ error: 'Email, password, and name are required' });
       }
-      const { user, profile } = userRepository.createUser(email, password, name);
+      const { user, profile } = await userRepository.createUserAsync(email, password, name);
       const token = authService.generateToken(user);
       return res.status(201).json({
         message: 'Account created successfully',
@@ -82,13 +88,13 @@ async function startServer() {
     }
   };
 
-  const handleLogin = (req: any, res: any) => {
+  const handleLogin = async (req: any, res: any) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
-      const user = userRepository.findByEmail(email);
+      const user = await userRepository.findByEmailAsync(email);
       if (!user) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
@@ -97,7 +103,7 @@ async function startServer() {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
       const token = authService.generateToken(user);
-      const profile = userRepository.getProfile(user.id);
+      const profile = await userRepository.getProfileAsync(user.id);
       return res.json({
         message: 'Login successful',
         token,
@@ -115,15 +121,15 @@ async function startServer() {
   app.post('/api/auth/login', handleLogin);
 
   // Profile Routes
-  const handleGetProfile = (req: any, res: any) => {
-    const profile = userRepository.getProfile(req.user.userId);
+  const handleGetProfile = async (req: any, res: any) => {
+    const profile = await userRepository.getProfileAsync(req.user.userId);
     if (!profile) return res.status(404).json({ error: 'Profile not found' });
     return res.json(profile);
   };
 
-  const handlePutProfile = (req: any, res: any) => {
+  const handlePutProfile = async (req: any, res: any) => {
     try {
-      const updated = userRepository.updateProfile(req.user.userId, req.body);
+      const updated = await userRepository.updateProfileAsync(req.user.userId, req.body);
       return res.json({ message: 'Profile updated successfully', profile: updated });
     } catch (e: any) {
       return res.status(400).json({ error: e.message || 'Profile update failed' });
@@ -147,7 +153,7 @@ async function startServer() {
       const simulationResult = await aiOrchestrator.simulate(userProfile, goalDetails, followUpAnswers);
 
       const userId = req.user?.userId || 'user-demo-001';
-      simulationRepository.saveSimulation(userId, simulationResult);
+      await simulationRepository.saveSimulationAsync(userId, simulationResult, userProfile, goalDetails);
 
       return res.json(simulationResult);
     } catch (e: any) {
@@ -156,8 +162,8 @@ async function startServer() {
     }
   };
 
-  const handleGetSimulationById = (req: any, res: any) => {
-    const record = simulationRepository.getById(req.params.id);
+  const handleGetSimulationById = async (req: any, res: any) => {
+    const record = await simulationRepository.getByIdAsync(req.params.id);
     if (!record) {
       return res.status(404).json({ error: 'Simulation record not found' });
     }
@@ -169,23 +175,79 @@ async function startServer() {
   app.get('/simulation/:id', authenticateToken, handleGetSimulationById);
   app.get('/api/simulation/:id', authenticateToken, handleGetSimulationById);
 
-  // Report Route
-  const handleReport = (req: any, res: any) => {
-    const { userProfile, goalDetails, scenarios, roadmap } = req.body;
-    if (!userProfile || !goalDetails) {
-      return res.status(400).json({ error: 'userProfile and goalDetails are required to build report' });
+  // Report Routes
+  const handleReport = async (req: any, res: any) => {
+    try {
+      const { userProfile, goalDetails, scenarios, roadmap, simulationId } = req.body;
+      if (!userProfile || !goalDetails) {
+        return res.status(400).json({ error: 'userProfile and goalDetails are required to build report' });
+      }
+      const fullReport = reportService.buildReport(userProfile, goalDetails, scenarios || [], roadmap || []);
+      const userId = req.user?.userId || 'user-demo-001';
+
+      // Persist report into PostgreSQL
+      const savedReportRecord = await saveReportToDb(userId, goalDetails.title, fullReport, simulationId);
+
+      return res.json({
+        ...fullReport,
+        id: savedReportRecord.id,
+        savedAt: savedReportRecord.createdAt
+      });
+    } catch (err: any) {
+      console.error('Report generation error:', err);
+      return res.status(500).json({ error: err.message || 'Failed to generate report' });
     }
-    const fullReport = reportService.buildReport(userProfile, goalDetails, scenarios || [], roadmap || []);
-    return res.json(fullReport);
+  };
+
+  const handleGetReports = async (req: any, res: any) => {
+    const userId = req.user?.userId || 'user-demo-001';
+    const userReports = await getReportsFromDbByUserId(userId);
+    return res.json(userReports);
+  };
+
+  const handleGetReportById = async (req: any, res: any) => {
+    const reportId = parseInt(req.params.id, 10);
+    if (isNaN(reportId)) return res.status(400).json({ error: 'Invalid report ID' });
+    const reportRecord = await getReportFromDbById(reportId);
+    if (!reportRecord) return res.status(404).json({ error: 'Report not found' });
+    return res.json(reportRecord);
   };
 
   app.post('/report', authenticateToken, handleReport);
   app.post('/api/report', authenticateToken, handleReport);
+  app.get('/reports', authenticateToken, handleGetReports);
+  app.get('/api/reports', authenticateToken, handleGetReports);
+  app.get('/reports/:id', authenticateToken, handleGetReportById);
+  app.get('/api/reports/:id', authenticateToken, handleGetReportById);
+
+  // FDF Versions Routes
+  const handleGetFdfVersions = async (_req: any, res: any) => {
+    const versions = await getAllFdfVersionsFromDb();
+    return res.json(versions);
+  };
+
+  const handlePostFdfVersion = async (req: any, res: any) => {
+    try {
+      const { version, name, description, config } = req.body;
+      if (!version || !name || !config) {
+        return res.status(400).json({ error: 'version, name, and config are required' });
+      }
+      const savedVersion = await saveFdfVersionToDb(version, name, description || '', config);
+      return res.status(201).json(savedVersion);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message || 'Failed to save FDF version' });
+    }
+  };
+
+  app.get('/fdf/versions', handleGetFdfVersions);
+  app.get('/api/fdf/versions', handleGetFdfVersions);
+  app.post('/fdf/versions', authenticateToken, handlePostFdfVersion);
+  app.post('/api/fdf/versions', authenticateToken, handlePostFdfVersion);
 
   // Dashboard Route
-  const handleDashboard = (req: any, res: any) => {
+  const handleDashboard = async (req: any, res: any) => {
     const userId = req.user?.userId || 'user-demo-001';
-    const summary = simulationRepository.getDashboardSummary(userId);
+    const summary = await simulationRepository.getDashboardSummaryAsync(userId);
     return res.json({
       userId,
       disclaimer: FDF_CONFIG.SYSTEM.DISCLAIMER,

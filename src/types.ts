@@ -179,6 +179,36 @@ export interface SimulationResult {
   fullReport?: FdfFullReport;
 }
 
+export interface MostSelectedGoal {
+  goalTitle: string;
+  category: string;
+  count: number;
+  percentage: number;
+}
+
+export interface AnalyticsDashboardSummary {
+  totalSimulations: number;
+  averageDecisionScore: number;
+  averageRiskScore: number;
+  completionRate: number;
+  mostSelectedGoals: MostSelectedGoal[];
+  categoryBreakdown: Record<string, number>;
+  riskDistribution: {
+    lowRisk: number;
+    moderateRisk: number;
+    highRisk: number;
+  };
+  recentSimulations: {
+    id: string;
+    goalTitle: string;
+    category: string;
+    createdAt: string;
+    recommendedStrategy: string;
+    decisionScore?: number;
+    riskScore?: number;
+  }[];
+}
+
 export interface AuthState {
   isAuthenticated: boolean;
   user: {
