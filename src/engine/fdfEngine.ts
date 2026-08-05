@@ -69,6 +69,7 @@ export { skillGapService } from './services/skillGap.service';
 export { riskService } from './services/risk.service';
 export { opportunityService } from './services/opportunity.service';
 export { decisionService } from './services/decision.service';
+export { explainabilityService } from './services/explainability.service';
 export { roadmapService } from './services/roadmap.service';
 export { reportService } from './services/report.service';
 export { aiOrchestrator } from './orchestrator/aiOrchestrator';

@@ -1,5 +1,6 @@
 import { RiskBreakdown, OpportunityBreakdown, ConfidenceLevel } from '../../types';
 import { FDF_CONFIG } from '../../config/fdfConfig';
+import { explainabilityService, DecisionExplanation } from './explainability.service';
 
 export interface DecisionEvaluation {
   decisionScore: number;
@@ -7,14 +8,7 @@ export interface DecisionEvaluation {
   reasoning: string;
   assumptions: string[];
   tradeOffs: string[];
-  explainability: {
-    score: number;
-    formula: string;
-    weightingBreakdown: Record<string, number>;
-    keyDrivers: string[];
-    penaltiesOrBoosts: string[];
-    summary: string;
-  };
+  explainability: DecisionExplanation;
 }
 
 export class DecisionService {
@@ -39,7 +33,14 @@ export class DecisionService {
       confidenceLevel = 'Medium';
     }
 
-    const reasoning = `Decision score of ${decisionScore}/100 combines goal alignment (${goalFit}/100, +${Math.round(goalFitComponent)} pts) and upside (${opportunity.overallOpportunityScore}/100, +${Math.round(opportunityComponent)} pts) with a risk deduction (-${Math.round(riskPenaltyComponent)} pts).`;
+    // Generate comprehensive explanation using reusable ExplainabilityService
+    const explanation = explainabilityService.explainDecision(
+      goalFit,
+      risk,
+      opportunity,
+      confidenceLevel,
+      decisionScore
+    );
 
     const assumptions = [
       'Weekly time commitment remains consistent at planned capacity',
@@ -55,26 +56,10 @@ export class DecisionService {
     return {
       decisionScore,
       confidenceLevel,
-      reasoning,
+      reasoning: explanation.summary,
       assumptions,
       tradeOffs,
-      explainability: {
-        score: decisionScore,
-        formula: weights.EXPRESSION,
-        weightingBreakdown: {
-          goalFitWeighted: Math.round(goalFitComponent),
-          opportunityWeighted: Math.round(opportunityComponent),
-          riskPenaltyDeduction: -Math.round(riskPenaltyComponent)
-        },
-        keyDrivers: [
-          `Goal Alignment: ${goalFit}/100`,
-          `Opportunity Score: ${opportunity.overallOpportunityScore}/100`
-        ],
-        penaltiesOrBoosts: [
-          `Risk Penalty Deducted: -${Math.round(riskPenaltyComponent)} pts`
-        ],
-        summary: reasoning
-      }
+      explainability: explanation
     };
   }
 }

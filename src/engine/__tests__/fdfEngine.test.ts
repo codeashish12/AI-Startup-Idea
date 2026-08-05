@@ -5,6 +5,7 @@ import { skillGapService } from '../services/skillGap.service';
 import { riskService } from '../services/risk.service';
 import { opportunityService } from '../services/opportunity.service';
 import { decisionService } from '../services/decision.service';
+import { explainabilityService } from '../services/explainability.service';
 import { aiOrchestrator } from '../orchestrator/aiOrchestrator';
 import { validateSimulationRequest } from '../../utils/validation';
 
@@ -81,6 +82,25 @@ describe('Future Decision Framework (FDF) Engine Test Suite', () => {
     expect(decision.confidenceLevel).toBeDefined();
     expect(decision.tradeOffs.length).toBeGreaterThan(0);
     expect(decision.explainability.weightingBreakdown).toBeDefined();
+  });
+
+  it('Explainability Service explains Decision Score using Goal Score, Risk Score, Opportunity Score, and Confidence Score', () => {
+    const risk = riskService.calculateRisk('Balanced', sampleProfile);
+    const opportunity = opportunityService.calculateOpportunity('Balanced', 'Career');
+    const explanation = explainabilityService.explainDecision(90, risk, opportunity, 'High', 85);
+
+    expect(explanation.goalScore).toBe(90);
+    expect(explanation.riskScore).toBe(risk.overallRiskScore);
+    expect(explanation.opportunityScore).toBe(opportunity.overallOpportunityScore);
+    expect(explanation.confidenceLevel).toBe('High');
+    expect(explanation.confidenceScore).toBeGreaterThan(0);
+    expect(explanation.breakdownComponents.goalScoreContribution).toBeDefined();
+    expect(explanation.breakdownComponents.opportunityScoreContribution).toBeDefined();
+    expect(explanation.breakdownComponents.riskScorePenalty).toBeDefined();
+    expect(explanation.componentExplanations.goalScoreAnalysis).toContain('Goal Alignment Score is 90/100');
+    expect(explanation.componentExplanations.riskScoreAnalysis).toContain('Overall Risk Score');
+    expect(explanation.componentExplanations.opportunityScoreAnalysis).toContain('Opportunity Upside Score');
+    expect(explanation.componentExplanations.confidenceAnalysis).toContain('Confidence Level is rated as High');
   });
 
   it('AI Orchestrator produces full simulation payload with required keys', async () => {
