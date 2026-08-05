@@ -20,7 +20,14 @@ const AUTHORIZED_FIREBASE_HOSTNAMES = [
   'futureengine.ai',
 ];
 
-export function isAuthorizedFirebaseDomain(hostname: string) {
+export function initFirebase() {
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig as any);
+  }
+  return app!;
+}
+
+function isFirebaseDomainAllowed(hostname: string) {
   const normalized = hostname.toLowerCase();
   if (AUTHORIZED_FIREBASE_HOSTNAMES.includes(normalized)) {
     return true;
@@ -31,17 +38,18 @@ export function isAuthorizedFirebaseDomain(hostname: string) {
   return false;
 }
 
-export function initFirebase() {
-  if (!getApps().length) {
-    app = initializeApp(firebaseConfig as any);
-  }
-  return app!;
+function normalizeFirebaseUser(user: FirebaseUser, fallbackName?: string) {
+  return {
+    uid: user.uid,
+    email: user.email || '',
+    name: user.displayName || fallbackName || user.email?.split('@')[0] || 'User',
+  };
 }
 
 export async function signInWithGooglePopup() {
-  if (typeof window !== 'undefined' && !isAuthorizedFirebaseDomain(window.location.hostname)) {
+  if (typeof window !== 'undefined' && !isFirebaseDomainAllowed(window.location.hostname)) {
     throw new Error(
-      'Google sign-in is unavailable on this domain. Please add the current domain to Firebase Authentication authorized domains.'
+      'Google sign-in is blocked on this domain. Add the current domain to Firebase Authentication authorized domains in your Firebase Console.'
     );
   }
 
@@ -49,20 +57,13 @@ export async function signInWithGooglePopup() {
   const auth = getAuth();
   const provider = new GoogleAuthProvider();
   const result = await signInWithPopup(auth, provider);
-  const user = result.user;
-  const idToken = await user.getIdToken();
+  const user = normalizeFirebaseUser(result.user);
+  const idToken = await result.user.getIdToken();
   return {
     idToken,
-    email: user.email || '',
-    name: user.displayName || ''
-  };
-}
-
-function normalizeFirebaseUser(user: FirebaseUser, fallbackName?: string) {
-  return {
+    email: user.email,
+    name: user.name,
     uid: user.uid,
-    email: user.email || '',
-    name: user.displayName || fallbackName || user.email?.split('@')[0] || 'User',
   };
 }
 
