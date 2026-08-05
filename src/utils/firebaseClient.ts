@@ -1,5 +1,14 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signOut,
+  User as FirebaseUser,
+} from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 let app: FirebaseApp | null = null;
@@ -47,6 +56,52 @@ export async function signInWithGooglePopup() {
     email: user.email || '',
     name: user.displayName || ''
   };
+}
+
+function normalizeFirebaseUser(user: FirebaseUser, fallbackName?: string) {
+  return {
+    uid: user.uid,
+    email: user.email || '',
+    name: user.displayName || fallbackName || user.email?.split('@')[0] || 'User',
+  };
+}
+
+export async function signInWithEmailPassword(email: string, password: string) {
+  initFirebase();
+  const auth = getAuth();
+  const credential = await signInWithEmailAndPassword(auth, email, password);
+  const user = normalizeFirebaseUser(credential.user);
+  const idToken = await credential.user.getIdToken();
+  return {
+    idToken,
+    email: user.email,
+    name: user.name,
+    uid: user.uid,
+  };
+}
+
+export async function createUserWithEmailPassword(email: string, password: string, name: string) {
+  initFirebase();
+  const auth = getAuth();
+  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  if (credential.user && name) {
+    await updateProfile(credential.user, { displayName: name });
+  }
+  const user = normalizeFirebaseUser(credential.user, name);
+  const idToken = await credential.user.getIdToken();
+  return {
+    idToken,
+    email: user.email,
+    name: user.name,
+    uid: user.uid,
+  };
+}
+
+export async function signOutFirebase() {
+  if (typeof window === 'undefined') return;
+  initFirebase();
+  const auth = getAuth();
+  await signOut(auth);
 }
 
 export default initFirebase;

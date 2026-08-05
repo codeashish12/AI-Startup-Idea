@@ -58,9 +58,17 @@ export default function App() {
   }, [simulations]);
 
   // Auth Handlers
-  const handleLoginSuccess = (user: { email: string; name: string }) => {
-    setAuth({ isAuthenticated: true, user });
-    setUserProfile((prev) => ({ ...prev, name: user.name }));
+  const handleLoginSuccess = (response: { token?: string | null; user: { id?: string; email: string; name: string } }) => {
+    setAuth({
+      isAuthenticated: true,
+      user: {
+        id: response.user.id || response.user.email,
+        email: response.user.email,
+        name: response.user.name,
+      },
+      token: response.token ?? null,
+    });
+    setUserProfile((prev) => ({ ...prev, name: response.user.name }));
   };
 
   const handleLogout = () => {

@@ -1,4 +1,8 @@
 import { AuthState, UserProfile } from '../types';
+import {
+  createUserWithEmailPassword,
+  signInWithEmailPassword,
+} from './firebaseClient';
 
 export const AUTH_TOKEN_KEY = 'fe_auth_token';
 export const AUTH_STATE_KEY = 'fe_auth';
@@ -35,10 +39,11 @@ export interface AuthSuccessResponse {
 }
 
 export function getStoredToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY);
+  return typeof window !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
 }
 
 export function persistAuthSession(token: string, user: AuthSessionUser): void {
+  if (typeof window === 'undefined') return;
   localStorage.setItem(AUTH_TOKEN_KEY, token);
   const authState: AuthState = {
     isAuthenticated: true,
@@ -49,23 +54,26 @@ export function persistAuthSession(token: string, user: AuthSessionUser): void {
 }
 
 export function clearAuthSession(): void {
+  if (typeof window === 'undefined') return;
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_STATE_KEY);
 }
 
 export function loadPersistedAuthState(): AuthState {
+  if (typeof window === 'undefined') {
+    return { isAuthenticated: false, user: null, token: null };
+  }
+
   const token = getStoredToken();
-  if (!token) {
+  const saved = localStorage.getItem(AUTH_STATE_KEY);
+  if (!saved) {
     return { isAuthenticated: false, user: null, token: null };
   }
 
   try {
-    const saved = localStorage.getItem(AUTH_STATE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved) as AuthState;
-      if (parsed.user) {
-        return { isAuthenticated: true, user: parsed.user, token };
-      }
+    const parsed = JSON.parse(saved) as AuthState;
+    if (parsed.user) {
+      return { isAuthenticated: true, user: parsed.user, token: token ?? parsed.token ?? null };
     }
   } catch {
     clearAuthSession();
@@ -100,19 +108,62 @@ export function mapApiProfileToUserProfile(profile: AuthApiProfile): UserProfile
   };
 }
 
-export async function loginWithEmail(email: string, password: string): Promise<AuthSuccessResponse> {
-  const res = await fetch('/api/auth/login', {
+function parseJsonSafe(text: string) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function tryBackendRequest(endpoint: string, body: Record<string, any>): Promise<AuthSuccessResponse | null> {
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(body),
   });
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Login failed');
+  const contentType = res.headers.get('content-type') || '';
+  const responseText = await res.text();
+  const isJson = contentType.includes('application/json');
+
+  if (res.ok && isJson) {
+    return parseJsonSafe(responseText) as AuthSuccessResponse;
   }
 
-  return data as AuthSuccessResponse;
+  if (!res.ok && isJson) {
+    const errorData = parseJsonSafe(responseText) as { error?: string } | null;
+    throw new Error(errorData?.error || 'Authentication request failed');
+  }
+
+  return null;
+}
+
+export async function loginWithEmail(email: string, password: string): Promise<AuthSuccessResponse> {
+  try {
+    const backendResponse = await tryBackendRequest('/api/auth/login', { email, password });
+    if (backendResponse) {
+      return backendResponse;
+    }
+  } catch (e: any) {
+    if (e.message === 'Authentication request failed') {
+      throw e;
+    }
+  }
+
+  try {
+    const firebaseUser = await signInWithEmailPassword(email, password);
+    return {
+      token: firebaseUser.idToken,
+      user: {
+        id: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: firebaseUser.name,
+      },
+    };
+  } catch (e: any) {
+    throw new Error(e.message || 'Login failed');
+  }
 }
 
 export async function signupWithEmail(
@@ -120,18 +171,30 @@ export async function signupWithEmail(
   password: string,
   name: string
 ): Promise<AuthSuccessResponse> {
-  const res = await fetch('/api/auth/signup', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name }),
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Signup failed');
+  try {
+    const backendResponse = await tryBackendRequest('/api/auth/signup', { email, password, name });
+    if (backendResponse) {
+      return backendResponse;
+    }
+  } catch (e: any) {
+    if (e.message === 'Authentication request failed') {
+      throw e;
+    }
   }
 
-  return data as AuthSuccessResponse;
+  try {
+    const firebaseUser = await createUserWithEmailPassword(email, password, name);
+    return {
+      token: firebaseUser.idToken,
+      user: {
+        id: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: firebaseUser.name,
+      },
+    };
+  } catch (e: any) {
+    throw new Error(e.message || 'Signup failed');
+  }
 }
 
 export async function verifySession(token: string): Promise<AuthApiProfile | null> {

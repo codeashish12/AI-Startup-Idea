@@ -215,5 +215,6 @@ export interface AuthState {
     email: string;
     name: string;
   } | null;
+  token?: string | null;
 }
 
