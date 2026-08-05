@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Mail, Lock, User, ArrowRight, ShieldCheck } from 'lucide-react';
 import { UserProfile } from '../types';
 import { loginWithEmail, signupWithEmail, AuthSuccessResponse } from '../utils/auth';
-import { signInWithGooglePopup } from '../utils/firebaseClient';
+import { signInWithGooglePopup, isAuthorizedFirebaseDomain } from '../utils/firebaseClient';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -24,6 +24,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [resetSent, setResetSent] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isGoogleAuthEnabled = typeof window !== 'undefined' && isAuthorizedFirebaseDomain(window.location.hostname);
 
   if (!isOpen) return null;
 
@@ -225,11 +226,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="button"
               onClick={handleGoogleLogin}
+              disabled={!isGoogleAuthEnabled || isSubmitting}
               className={`w-full flex items-center justify-center space-x-3 py-2.5 rounded-xl font-medium text-sm border transition-colors ${
                 darkMode
                   ? 'bg-slate-900/50 border-slate-800 text-slate-200 hover:bg-slate-800'
                   : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-              }`}
+              } ${!isGoogleAuthEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24">
                 <path
@@ -249,8 +251,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                 />
               </svg>
-              <span>Sign in with Google</span>
+              <span>{isGoogleAuthEnabled ? 'Sign in with Google' : 'Google sign-in unavailable'}</span>
             </button>
+            {!isGoogleAuthEnabled && (
+              <p className="mt-2 text-xs text-rose-300">
+                Google sign-in is disabled on this domain. Add it to Firebase Authentication authorized domains.
+              </p>
+            )}
           </>
         )}
 
