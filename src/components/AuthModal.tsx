@@ -48,7 +48,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       onLoginSuccess(response);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      const msg = (err && err.message) || String(err || 'Authentication failed');
+      if (msg.includes('auth/operation-not-allowed')) {
+        setError('Email/password sign-in is disabled in Firebase. Enable it in Firebase Console → Authentication → Sign-in method.');
+      } else {
+        setError(msg || 'Authentication failed');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -73,11 +78,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           onLoginSuccess(resp);
           onClose();
         } catch (err: any) {
-          setError(err.message || 'Google authentication failed');
+          const msg = (err && err.message) || String(err || 'Google authentication failed');
+          if (msg.includes('auth/unauthorized-domain')) {
+            setError('Google sign-in is blocked on this domain. Add the domain to Firebase Console → Authentication → Authorized domains.');
+          } else {
+            setError(msg || 'Google authentication failed');
+          }
         }
       })
       .catch((err) => {
-        setError(err.message || 'Google sign-in popup failed');
+        const msg = (err && err.message) || String(err || 'Google sign-in popup failed');
+        if (msg.includes('auth/operation-not-allowed')) {
+          setError('Google sign-in is disabled in Firebase. Enable Google provider in Firebase Console → Authentication → Sign-in method.');
+        } else if (msg.includes('auth/unauthorized-domain')) {
+          setError('Google sign-in is blocked on this domain. Add the domain to Firebase Console → Authentication → Authorized domains.');
+        } else {
+          setError(msg || 'Google sign-in popup failed');
+        }
       })
       .finally(() => setIsSubmitting(false));
   };
