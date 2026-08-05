@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, User, ArrowRight, ShieldCheck } from 'lucide-react';
-import { AuthState } from '../types';
+import { UserProfile } from '../types';
+import { loginWithEmail, signupWithEmail, AuthSuccessResponse } from '../utils/auth';
+import { signInWithGooglePopup } from '../utils/firebaseClient';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoginSuccess: (user: { email: string; name: string }) => void;
+  onLoginSuccess: (response: AuthSuccessResponse) => void;
   darkMode: boolean;
 }
 
@@ -16,35 +18,67 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   darkMode,
 }) => {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
-  const [email, setEmail] = useState('alex@futureengine.ai');
-  const [password, setPassword] = useState('••••••••••••');
-  const [name, setName] = useState('Alex Rivera');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [resetSent, setResetSent] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
     if (mode === 'forgot') {
       setResetSent(true);
       setTimeout(() => setResetSent(false), 4000);
       return;
     }
-    
-    // Simulate successful authentication
-    onLoginSuccess({
-      email,
-      name: name || email.split('@')[0],
-    });
-    onClose();
+
+    setIsSubmitting(true);
+    try {
+      const response =
+        mode === 'signup'
+          ? await signupWithEmail(email.trim(), password, name.trim())
+          : await loginWithEmail(email.trim(), password);
+
+      onLoginSuccess(response);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Authentication failed');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleGoogleLogin = () => {
-    onLoginSuccess({
-      email: 'alex.google@futureengine.ai',
-      name: 'Alex Rivera (Google)',
-    });
-    onClose();
+    setError(null);
+    setIsSubmitting(true);
+    signInWithGooglePopup()
+      .then(async ({ idToken, email, name }) => {
+        try {
+          const res = await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, name, idToken }),
+          });
+
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Google auth failed');
+
+          const resp: AuthSuccessResponse = { token: data.token, user: data.user, profile: data.profile } as any;
+          onLoginSuccess(resp);
+          onClose();
+        } catch (err: any) {
+          setError(err.message || 'Google authentication failed');
+        }
+      })
+      .catch((err) => {
+        setError(err.message || 'Google sign-in popup failed');
+      })
+      .finally(() => setIsSubmitting(false));
   };
 
   return (
@@ -137,6 +171,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <input
                   type="password"
                   required
+                  minLength={6}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -148,6 +183,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
+          {error && (
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+              {error}
+            </div>
+          )}
+
           {resetSent && (
             <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
               Password reset link sent to {email}. Check your inbox!
@@ -156,11 +197,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <button
             type="submit"
-            className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 transition-all shadow-md shadow-indigo-600/20"
+            disabled={isSubmitting}
+            className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50"
           >
             <span>
-              {mode === 'login' && 'Sign In'}
-              {mode === 'signup' && 'Create Account'}
+              {mode === 'login' && (isSubmitting ? 'Signing In...' : 'Sign In')}
+              {mode === 'signup' && (isSubmitting ? 'Creating Account...' : 'Create Account')}
               {mode === 'forgot' && 'Send Reset Instructions'}
             </span>
             <ArrowRight className="w-4 h-4" />
@@ -181,6 +223,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
 
             <button
+              type="button"
               onClick={handleGoogleLogin}
               className={`w-full flex items-center justify-center space-x-3 py-2.5 rounded-xl font-medium text-sm border transition-colors ${
                 darkMode
@@ -217,7 +260,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <p>
               Don't have an account?{' '}
               <button
-                onClick={() => setMode('signup')}
+                type="button"
+                onClick={() => {
+                  setMode('signup');
+                  setError(null);
+                }}
                 className="font-semibold text-indigo-400 hover:underline"
               >
                 Sign up
@@ -228,7 +275,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <p>
               Already have an account?{' '}
               <button
-                onClick={() => setMode('login')}
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setError(null);
+                }}
                 className="font-semibold text-indigo-400 hover:underline"
               >
                 Sign in
@@ -237,6 +288,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
           {mode === 'forgot' && (
             <button
+              type="button"
               onClick={() => setMode('login')}
               className="font-semibold text-indigo-400 hover:underline"
             >

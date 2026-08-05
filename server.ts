@@ -55,9 +55,7 @@ async function startServer() {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) {
-      // Fallback to demo user if no token provided for ease of testing
-      req.user = { userId: 'user-demo-001', email: 'aarav@futureengine.ai', name: 'Aarav Sharma' };
-      return next();
+      return res.status(401).json({ error: 'Unauthorized: Authentication required' });
     }
     try {
       const decoded = authService.verifyToken(token);
@@ -120,6 +118,48 @@ async function startServer() {
   app.post('/auth/login', handleLogin);
   app.post('/api/auth/login', handleLogin);
 
+  // Google OAuth exchange endpoint (accepts client-side Google sign-in info)
+  app.post('/api/auth/google', async (req: any, res: any) => {
+    try {
+      const { email, name } = req.body;
+      if (!email) return res.status(400).json({ error: 'Missing email from Google sign-in' });
+
+      // Try to find existing user
+      let user = await userRepository.findByEmailAsync(email);
+      let profile = null;
+      if (!user) {
+        // Create user with random password (stored hashed)
+        const randomPassword = Math.random().toString(36).slice(-12) + Date.now().toString(36).slice(-6);
+        const created = await userRepository.createUserAsync(email, randomPassword, name || '');
+        user = created.user;
+        profile = created.profile;
+      } else {
+        profile = await userRepository.getProfileAsync(user.id);
+      }
+
+      const token = authService.generateToken(user);
+      return res.json({ message: 'Google login successful', token, user: { id: user.id, email: user.email, name: user.name }, profile });
+    } catch (err: any) {
+      console.error('Google auth exchange error:', err);
+      return res.status(500).json({ error: 'Google auth failed' });
+    }
+  });
+
+  const handleVerifySession = async (req: any, res: any) => {
+    const profile = await userRepository.getProfileAsync(req.user.userId);
+    return res.json({
+      user: {
+        id: req.user.userId,
+        email: req.user.email,
+        name: req.user.name,
+      },
+      profile: profile ?? null,
+    });
+  };
+
+  app.get('/auth/session', authenticateToken, handleVerifySession);
+  app.get('/api/auth/session', authenticateToken, handleVerifySession);
+
   // Profile Routes
   const handleGetProfile = async (req: any, res: any) => {
     const profile = await userRepository.getProfileAsync(req.user.userId);
@@ -152,7 +192,7 @@ async function startServer() {
       const { userProfile, goalCategory, goalDetails, followUpAnswers } = req.body;
       const simulationResult = await aiOrchestrator.simulate(userProfile, goalDetails, followUpAnswers);
 
-      const userId = req.user?.userId || 'user-demo-001';
+      const userId = req.user.userId;
       await simulationRepository.saveSimulationAsync(userId, simulationResult, userProfile, goalDetails);
 
       return res.json(simulationResult);
@@ -183,7 +223,7 @@ async function startServer() {
         return res.status(400).json({ error: 'userProfile and goalDetails are required to build report' });
       }
       const fullReport = reportService.buildReport(userProfile, goalDetails, scenarios || [], roadmap || []);
-      const userId = req.user?.userId || 'user-demo-001';
+      const userId = req.user.userId;
 
       // Persist report into PostgreSQL
       const savedReportRecord = await saveReportToDb(userId, goalDetails.title, fullReport, simulationId);
@@ -200,7 +240,7 @@ async function startServer() {
   };
 
   const handleGetReports = async (req: any, res: any) => {
-    const userId = req.user?.userId || 'user-demo-001';
+    const userId = req.user.userId;
     const userReports = await getReportsFromDbByUserId(userId);
     return res.json(userReports);
   };
@@ -246,7 +286,7 @@ async function startServer() {
 
   // Dashboard Route
   const handleDashboard = async (req: any, res: any) => {
-    const userId = req.user?.userId || 'user-demo-001';
+    const userId = req.user.userId;
     const summary = await simulationRepository.getDashboardSummaryAsync(userId);
     return res.json({
       userId,
