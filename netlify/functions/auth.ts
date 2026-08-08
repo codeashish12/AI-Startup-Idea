@@ -1,8 +1,18 @@
-import { Handler } from '@netlify/functions';
-import crypto from 'crypto';
+type Handler = (event: any) => Promise<any>;
 
 // This will be populated from environment
 const JWT_SECRET = process.env.JWT_SECRET || 'future_engine_production_jwt_secret_2026_key';
+
+// Simple hash function without crypto module (for browser/lambda compatibility)
+function simpleHash(input: string): string {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    const char = input.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(16);
+}
 
 // Mock user repository for serverless - should connect to DB in production
 class UserRepository {
@@ -44,7 +54,7 @@ class UserRepository {
   }
 
   hashPassword(password: string): string {
-    return crypto.createHmac('sha256', JWT_SECRET).update(password).digest('hex');
+    return simpleHash(JWT_SECRET + password);
   }
 
   createUser(email: string, password: string, name: string) {
@@ -183,20 +193,24 @@ class AuthService {
 
 const authService = new AuthService();
 
-const handler: Handler = async (event) => {
+export default async function handler(event: any) {
   const httpMethod = event.httpMethod;
   const path = event.path;
+
+  // CORS headers
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json',
+  };
 
   try {
     // Handle preflight requests
     if (httpMethod === 'OPTIONS') {
       return {
         statusCode: 200,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        },
+        headers: corsHeaders,
         body: '',
       };
     }
@@ -207,18 +221,18 @@ const handler: Handler = async (event) => {
     } catch (e) {
       return {
         statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({ error: 'Invalid JSON' }),
       };
     }
 
     // Handle signup
-    if (path.includes('/auth/signup') && httpMethod === 'POST') {
+    if (path?.includes('/auth/signup') && httpMethod === 'POST') {
       const { email, password, name } = body;
       if (!email || !password || !name) {
         return {
           statusCode: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({ error: 'Email, password, and name are required' }),
         };
       }
@@ -227,28 +241,25 @@ const handler: Handler = async (event) => {
         const result = authService.signup(email, password, name);
         return {
           statusCode: 201,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
+          headers: corsHeaders,
           body: JSON.stringify(result),
         };
       } catch (e: any) {
         return {
           statusCode: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({ error: e.message || 'Failed to create account' }),
         };
       }
     }
 
     // Handle login
-    if (path.includes('/auth/login') && httpMethod === 'POST') {
+    if (path?.includes('/auth/login') && httpMethod === 'POST') {
       const { email, password } = body;
       if (!email || !password) {
         return {
           statusCode: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({ error: 'Email and password are required' }),
         };
       }
@@ -257,28 +268,25 @@ const handler: Handler = async (event) => {
         const result = authService.login(email, password);
         return {
           statusCode: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
+          headers: corsHeaders,
           body: JSON.stringify(result),
         };
       } catch (e: any) {
         return {
           statusCode: 401,
-          headers: { 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({ error: e.message || 'Authentication failed' }),
         };
       }
     }
 
     // Handle Google OAuth
-    if (path.includes('/auth/google') && httpMethod === 'POST') {
+    if (path?.includes('/auth/google') && httpMethod === 'POST') {
       const { email, name } = body;
       if (!email) {
         return {
           statusCode: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({ error: 'Missing email from Google sign-in' }),
         };
       }
@@ -287,16 +295,13 @@ const handler: Handler = async (event) => {
         const result = authService.googleAuth(email, name || '');
         return {
           statusCode: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
+          headers: corsHeaders,
           body: JSON.stringify(result),
         };
       } catch (e: any) {
         return {
           statusCode: 500,
-          headers: { 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({ error: e.message || 'Google auth failed' }),
         };
       }
@@ -304,17 +309,15 @@ const handler: Handler = async (event) => {
 
     return {
       statusCode: 404,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Not found' }),
     };
   } catch (error: any) {
     console.error('Auth function error:', error);
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Internal server error' }),
     };
   }
-};
-
-export { handler };
+}

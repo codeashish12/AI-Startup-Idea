@@ -3,49 +3,20 @@
   functions = "netlify/functions"
   publish = "dist"
 
-# Environment variables
-[env]
-  API_KEY = ""
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["crypto"]
 
-# Function configuration
+# Redirect all API calls to the auth function
 [[redirects]]
   from = "/api/auth/*"
   to = "/.netlify/functions/auth"
   status = 200
   force = true
 
-[[redirects]]
-  from = "/api/profile"
-  to = "/.netlify/functions/profile"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/simulation"
-  to = "/.netlify/functions/simulation"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/simulate"
-  to = "/.netlify/functions/simulate"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/report"
-  to = "/.netlify/functions/report"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/reports/*"
-  to = "/.netlify/functions/reports"
-  status = 200
-  force = true
-
-# SPA fallback
+# SPA fallback - keep this last
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
