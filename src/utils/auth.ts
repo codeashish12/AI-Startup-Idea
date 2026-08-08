@@ -1,8 +1,4 @@
 import { AuthState, UserProfile } from '../types';
-import {
-  createUserWithEmailPassword,
-  signInWithEmailPassword,
-} from './firebaseClient';
 
 export const AUTH_TOKEN_KEY = 'fe_auth_token';
 export const AUTH_STATE_KEY = 'fe_auth';
@@ -116,7 +112,7 @@ function parseJsonSafe(text: string) {
   }
 }
 
-async function tryBackendRequest(endpoint: string, body: Record<string, any>): Promise<AuthSuccessResponse | null> {
+async function makeAuthRequest(endpoint: string, body: Record<string, any>): Promise<AuthSuccessResponse> {
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -127,43 +123,21 @@ async function tryBackendRequest(endpoint: string, body: Record<string, any>): P
   const responseText = await res.text();
   const isJson = contentType.includes('application/json');
 
-  if (res.ok && isJson) {
-    return parseJsonSafe(responseText) as AuthSuccessResponse;
+  if (!isJson) {
+    throw new Error('Server returned invalid response');
   }
 
-  if (!res.ok && isJson) {
-    const errorData = parseJsonSafe(responseText) as { error?: string } | null;
-    throw new Error(errorData?.error || 'Authentication request failed');
+  const data = parseJsonSafe(responseText);
+  
+  if (!res.ok) {
+    throw new Error(data?.error || 'Authentication failed');
   }
 
-  return null;
+  return data as AuthSuccessResponse;
 }
 
 export async function loginWithEmail(email: string, password: string): Promise<AuthSuccessResponse> {
-  try {
-    const backendResponse = await tryBackendRequest('/api/auth/login', { email, password });
-    if (backendResponse) {
-      return backendResponse;
-    }
-  } catch (e: any) {
-    if (e.message === 'Authentication request failed') {
-      throw e;
-    }
-  }
-
-  try {
-    const firebaseUser = await signInWithEmailPassword(email, password);
-    return {
-      token: firebaseUser.idToken,
-      user: {
-        id: firebaseUser.uid,
-        email: firebaseUser.email,
-        name: firebaseUser.name,
-      },
-    };
-  } catch (e: any) {
-    throw new Error(e.message || 'Login failed');
-  }
+  return makeAuthRequest('/api/auth/login', { email, password });
 }
 
 export async function signupWithEmail(
@@ -171,30 +145,7 @@ export async function signupWithEmail(
   password: string,
   name: string
 ): Promise<AuthSuccessResponse> {
-  try {
-    const backendResponse = await tryBackendRequest('/api/auth/signup', { email, password, name });
-    if (backendResponse) {
-      return backendResponse;
-    }
-  } catch (e: any) {
-    if (e.message === 'Authentication request failed') {
-      throw e;
-    }
-  }
-
-  try {
-    const firebaseUser = await createUserWithEmailPassword(email, password, name);
-    return {
-      token: firebaseUser.idToken,
-      user: {
-        id: firebaseUser.uid,
-        email: firebaseUser.email,
-        name: firebaseUser.name,
-      },
-    };
-  } catch (e: any) {
-    throw new Error(e.message || 'Signup failed');
-  }
+  return makeAuthRequest('/api/auth/signup', { email, password, name });
 }
 
 export function parseAuthError(error: unknown): string {
