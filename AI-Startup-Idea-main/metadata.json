@@ -1,0 +1,6 @@
+{
+  "name": "Future Engine",
+  "description": "AI-Powered Decision Simulation Platform - Compare future scenarios before making key decisions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
